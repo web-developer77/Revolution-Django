@@ -4,13 +4,6 @@
 Live wall/ photo feed of clothing labels for Fashion Revolution Day for [Fashion Revolution](http://fashionrevolution.org/). People will be taking photos of their clothing labels, we would like them to all upload onto a live feed.
 
 ##Team
-###Backend
-* [Raquel](https://github.com/raquel-ucl)
-* [Mariza](https://github.com/marizoldi)
-
-###Front-End
-* [Lili](https://github.com/lili2311)
-* [Karen](https://github.com/neraks)
 
 ##Project Setup
 1. Get the code: `git clone https://github.com/womenhackfornonprofits/fashion-revolution-django`
