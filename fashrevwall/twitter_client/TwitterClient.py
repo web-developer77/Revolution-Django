@@ -2,13 +2,17 @@
 Represents a client that connects to Twitter to retrieve tweets based on a
 search criteria using Twitter REST API and Tweepy.
 """
+
+import logging
+log = logging.getLogger("fashrevwall")
+
 import os
 import tweepy
 from tweepy import OAuthHandler
-from datetime import date, datetime, timedelta
-from .TwitterStreamListener import TwitterStreamListener
+from datetime import date, timedelta
 from fashrevwall.wall.models import Tweet
 from django.db import IntegrityError
+
 
 class TwitterClient:
     def __init__(self):
@@ -29,58 +33,47 @@ class TwitterClient:
         return tweepy.API(self.auth)
 
 
-    def get_images_by_hashtag(self, hashtag, n):
+    def get_images_by_hashtag(self, hashtag):
         """
-        Receives a string hashtag and returns the list of last n Tweets
+        Receives a string hashtag and returns the list of last 24h Tweets
         containing it.
         """
         tweets = []
-        # Work out date of latest tweet in DB, and query since that date only
-        since = self.get_latest_tweet_date()
-        print "since: " + str(since)
-        if since:
-            previous_query = date.today() - timedelta(1)
-            print previous_query
-            results = tweepy.Cursor(self.api.search, q=hashtag, since=previous_query)
-        else:
-            yesterday = date.today() - timedelta(1)
-            print yesterday
-            results = tweepy.Cursor(self.api.search, q=hashtag, since=yesterday)
-        print "Obtained results, processing..."
-        print results.items()
+        # Tweepy only allows for queries with day, but no time, so we can only
+        # query since yesteday
+        yesterday = date.today() - timedelta(1)
+        results = tweepy.Cursor(self.api.search, q=hashtag, since=yesterday)
+        log.info("Obtained results, processing...")
         for tweet in results.items():
-            print tweet.author.screen_name.encode('utf-8'), tweet.created_at, tweet.text.encode('utf-8')
+            tweet_url = "http://twitter.com/" + tweet.author.screen_name + "/status/" + tweet.id_str
+            log.info("Looking into tweet: " + tweet_url)
+            if hasattr(tweet, "retweeted_status") or tweet.in_reply_to_status_id:
+                log.info("This tweet is a retweet or a reply, so skipping...\n")
+                continue
             user = tweet.author.screen_name.encode('utf-8')
             created_at = tweet.created_at
             try:
                 image_url = tweet.entities['media'][0]['media_url']
-                print "This tweet contains an image URL: " + image_url
+                log.info("This tweet contains an image URL: " + image_url)
             except KeyError:
                 # Some tweets with given hashtag might not have images in them
-                print "This tweet doesn't contain an image."
+                log.info("This tweet doesn't contain an image.\n")
                 continue
+            num_tweets = Tweet.objects.count()
+            log.info("There are " + str(num_tweets) + " tweets in the DB.")
+            if num_tweets >= 10000:
+                log.info("Maximum number of tweets stored in the DB reached.")
+                oldest_tweet = Tweet.objects.order_by('created_at')[0]
+                log.info("Deleting tweet created on " + str(oldest_tweet.created_at))
+                oldest_tweet.delete()
             try:
+                log.info("Trying to store tweet with text: " + tweet.text + " , and image: " + image_url + " , created at: " + str(tweet.created_at))
                 t = Tweet.objects.create(user=user, image_url=image_url, created_at=created_at)
                 t.save()
-                print "Tweet ingested.\n\n"
+                log.info("New tweet created on date " + str(t.created_at) + " ingested.\n\n")
             except IntegrityError:
+                log.info("Skipping tweet ingestion because image url is already in DB.\n")
                 # We only want images to be in the DB once so that field has
                 # been set to unique. If we try to insert the same image_url
                 # twice, the code breaks with an IntegrityError, so skip those
                 continue
-
-    def get_latest_tweet_date(self):
-        """
-        Gets date of latest tweeted tweet.
-        """
-        try:
-            latest_tweet = Tweet.objects.order_by('created_at').reverse()[0]
-        except IndexError:
-            return None
-
-        return latest_tweet.created_at
-
-
-    def stream_by_hashtag(self, hashtag):
-        streamingAPI = tweepy.streaming.Stream(self.auth, TwitterStreamListener())
-        streamingAPI.filter(track=[hashtag])
